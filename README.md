@@ -33,7 +33,8 @@ Create the following configuration and save it as dashboard-admin.yaml file. Not
 
 `nano dashboard-admin.yaml`
 
-```apiVersion: v1
+```
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: admin-user
@@ -75,7 +76,8 @@ Similarly to the admin account, save the following configuration in `dashboard-r
 
 `nano dashboard-read-only.yaml`
 
-```apiVersion: v1
+```
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: read-only-user
@@ -286,47 +288,36 @@ mkdir rook
 `kubectl create -f cluster.yaml`
 
 **Ceph Persistent Volume for Kubernetes**
+Block storage allows a single pod to mount storage. In this section, you will create a storage block that you can use later in your applications.
 
-We have our storage cluster ready, but how we can use it within our Kubernetes or OpenShift cluster for Docker container volumes?
+Before Ceph can provide storage to your cluster, you first need to create a storageclass and a cephblockpool. This will allow Kubernetes to interoperate with Rook when creating persistent volumes:
 
-We have 2 options, store volumes as block storage images in Ceph or mounting CephFS inside Kubernetes Pods. We will follow the first approach for flexibility, performance and features like snapshots.
+`kubectl apply -f ./csi/rbd/storageclass.yaml`
 
-From any Ceph node we will run:
+After successfully deploying the storageclass and cephblockpool, you will continue by defining the PersistentVolumeClaim (PVC) for your application. A PersistentVolumeClaim is a resource used to request storage from your cluster.
 
-`ceph osd pool create test 128 128`
+For that, you first need to create a YAML file:
 
-Then we need to create a block device image inside our pool:
+`nano pvc-rook-ceph-block.yaml`
 
-```
-rbd create myvol --size 1G --pool test
-rbd ls -l test
-```
-
-Note: if your Kubernetes cluster nodes run Ubuntu, you will have to disable some features as a workaround for bug #1578484:
-
-`rbd feature disable --pool test myvol exclusive-lock object-map fast-diff deep-flatten`
-
-Now let’s move to our Kubernetes cluster nodes and install Ceph common client packages in all of them:
+Add the following for your PersistentVolumeClaim:
 
 ```
-$ sudo apt install ceph-fs-common ceph-common
-or if using Red Hat / Fedora / CentOS:
-$ sudo dnf install ceph
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+spec:
+  storageClassName: rook-ceph-block
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
 ```
-Next is to copy the keyring to each of the nodes. You can find it in your ansible folder `fetch/{my-cluster-id}/etc/ceph/ceph.client.admin.keyring`
 
-We are now ready to start deploying our Kubernetes or OpenShift entities. First let’s prepare the secret hash from the keyring we have in the ansible folder:
+Now that you have defined the PersistentVolumeClaim, it is time to deploy it using the following command:
 
-`$ cat fetch/{my-cluster-id}/etc/ceph/ceph.client.admin.keyring | grep key|awk '{print $3}' | base64`
+`kubectl apply -f pvc-rook-ceph-block.yaml`
 
-And we will create it with kubectl:
 
-`# kubectl create -f ceph-secret.yaml`
-
-We will create now a persistent volume:
-
-`# kubectl create -f ceph-pv.yaml`
-
-And finally the persistent volume claim:
-
-`# kubectl create -f ceph-pv-claim.yaml`
